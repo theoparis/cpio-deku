@@ -11,7 +11,6 @@ alloc = ["deku/alloc"]
 [dependencies]
 clap = { version = "4.4.12", features = ["derive"] }
 deku = { git = "https://github.com/sharksforarms/deku", branch = "impl-reader-seek" }
-thiserror = "1.0.52"
 
 [dev-dependencies]
 tempfile = "3.9.0"

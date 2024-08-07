@@ -1,24 +1,17 @@
 //! Copy in/out file archives
+#![no_std]
 
-use std::ffi::CString;
-use std::io::{self, Cursor};
-use std::io::{Read, Seek, SeekFrom, Write};
+extern crate alloc;
 
+use alloc::boxed::Box;
+use alloc::ffi::CString;
+use alloc::format;
+use alloc::{vec, vec::Vec};
+use deku::no_std_io::{Cursor, Read, Seek, SeekFrom, Write};
 use deku::prelude::*;
-use thiserror::Error;
 
 const MAGIC: [u8; 6] = [b'0', b'7', b'0', b'7', b'0', b'1'];
 const TRAILER: &str = "TRAILER!!!";
-
-/// Errors generated from library
-#[derive(Error, Debug)]
-pub enum CpioError {
-    #[error("std io error: {0}")]
-    StdIo(#[from] io::Error),
-
-    #[error("deku error: {0:?}")]
-    Deku(#[from] deku::DekuError),
-}
 
 pub trait ReadSeek: Read + Seek {}
 // pub trait BufReadSeek: BufRead + Seek + Send {}
@@ -33,20 +26,20 @@ pub(crate) struct ReaderWithOffset<R: ReadSeek> {
 }
 
 impl<R: ReadSeek> ReaderWithOffset<R> {
-    pub fn new(mut io: R, offset: u64) -> std::io::Result<Self> {
+    pub fn new(mut io: R, offset: u64) -> deku::no_std_io::Result<Self> {
         io.seek(SeekFrom::Start(offset))?;
         Ok(Self { io, offset })
     }
 }
 
 impl<R: ReadSeek> Read for ReaderWithOffset<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> deku::no_std_io::Result<usize> {
         self.io.read(buf)
     }
 }
 
 impl<R: ReadSeek> Seek for ReaderWithOffset<R> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> deku::no_std_io::Result<u64> {
         let seek = match pos {
             SeekFrom::Start(start) => SeekFrom::Start(self.offset + start),
             seek => seek,
@@ -57,7 +50,7 @@ impl<R: ReadSeek> Seek for ReaderWithOffset<R> {
 
 impl<T: ReadSeek> CpioReader for T {}
 pub trait CpioReader: ReadSeek {
-    fn extract_data<W>(&mut self, object: &Object, writer: &mut W) -> Result<(), CpioError>
+    fn extract_data<W>(&mut self, object: &Object, writer: &mut W) -> deku::no_std_io::Result<()>
     where
         W: Write + Seek,
     {
@@ -153,14 +146,14 @@ pub struct ArchiveReader<'b> {
 }
 
 impl<'b> ArchiveReader<'b> {
-    pub fn from_reader(reader: impl ReadSeek + 'b) -> Result<Self, CpioError> {
+    pub fn from_reader(reader: impl ReadSeek + 'b) -> deku::no_std_io::Result<Self> {
         Self::from_reader_with_offset(reader, 0)
     }
 
     pub fn from_reader_with_offset(
         reader: impl ReadSeek + 'b,
         offset: u64,
-    ) -> Result<Self, CpioError> {
+    ) -> deku::no_std_io::Result<Self> {
         let mut reader: Box<dyn ReadSeek> = if offset == 0 {
             Box::new(reader)
         } else {
@@ -175,7 +168,7 @@ impl<'b> ArchiveReader<'b> {
         &mut self,
         name: CString,
         writer: &mut W,
-    ) -> Result<Option<()>, CpioError>
+    ) -> deku::no_std_io::Result<Option<()>>
     where
         W: Write + Seek,
     {
@@ -190,7 +183,7 @@ impl<'b> ArchiveReader<'b> {
     }
 }
 
-pub trait WriteSeek: std::io::Write + Seek {}
+pub trait WriteSeek: deku::no_std_io::Write + Seek {}
 impl<T: Write + Seek> WriteSeek for T {}
 
 pub struct ArchiveWriter<'a> {
@@ -209,7 +202,7 @@ impl<'a> ArchiveWriter<'a> {
         mut reader: impl ReadSeek + 'a + 'static,
         path: CString,
         header: Header,
-    ) -> Result<(), CpioError> {
+    ) -> deku::no_std_io::Result<()> {
         // stream_len
         let filesize = reader.seek(SeekFrom::End(0))?;
         reader.seek(SeekFrom::Start(0))?;
@@ -234,7 +227,7 @@ impl<'a> ArchiveWriter<'a> {
 
         let object = Object {
             header: cpio_header,
-            name: CString::new(path.as_bytes()).unwrap(),
+            name: CString::new(path).unwrap(),
             name_pad: vec![0; pad_to_4(6 + namesize.value as usize)],
             data: Data::Reader(Box::new(reader)),
         };
@@ -245,7 +238,7 @@ impl<'a> ArchiveWriter<'a> {
     }
 
     /// Before writing to Writer, a "TRAILER!!!" entry must be added
-    pub fn write(&mut self) -> Result<(), CpioError> {
+    pub fn write(&mut self) -> deku::no_std_io::Result<()> {
         let header = Header { nlink: 1, ..Default::default() };
 
         // empty data
